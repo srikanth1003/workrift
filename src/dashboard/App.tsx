@@ -3,12 +3,14 @@ import { TopSites } from "./components/TopSites";
 import { PatternList } from "./components/PatternList";
 import { TimelineView } from "./components/TimelineView";
 import { WeeklyReport } from "./components/WeeklyReport";
-import type { WorkEvent, DetectedPattern, DomainStat } from "@shared/types";
+import { ActivityBreakdown } from "./components/ActivityBreakdown";
+import type { WorkEvent, DetectedPattern, DomainStat, ActivityEvent } from "@shared/types";
 
 export function App() {
   const [events, setEvents] = useState<WorkEvent[]>([]);
   const [patterns, setPatterns] = useState<DetectedPattern[]>([]);
   const [domainStats, setDomainStats] = useState<DomainStat[]>([]);
+  const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -16,7 +18,8 @@ export function App() {
       chrome.runtime.sendMessage({ type: "GET_TODAY_STATS" }),
       chrome.runtime.sendMessage({ type: "GET_PATTERNS" }),
       chrome.runtime.sendMessage({ type: "GET_TODAY_EVENTS" }),
-    ]).then(([stats, patternsResponse, eventsResponse]) => {
+      chrome.runtime.sendMessage({ type: "GET_TODAY_ACTIVITIES" }),
+    ]).then(([stats, patternsResponse, eventsResponse, activitiesResponse]) => {
       const typedStats = stats as {
         totalEvents: number;
         tabSwitches: number;
@@ -28,6 +31,7 @@ export function App() {
       setDomainStats(typedStats.domainStats ?? []);
       setPatterns((patternsResponse as { patterns: DetectedPattern[] }).patterns);
       setEvents((eventsResponse as { events: WorkEvent[] })?.events ?? []);
+      setActivities((activitiesResponse as { activities: ActivityEvent[] })?.activities ?? []);
       setLoading(false);
     });
   }, []);
@@ -58,6 +62,7 @@ export function App() {
           <h1 className="text-xl font-semibold">Work Recognizer</h1>
         </div>
         <div className="space-y-6">
+          <ActivityBreakdown activities={activities} />
           <WeeklyReport stats={todayStats} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <TopSites stats={domainStats} />
