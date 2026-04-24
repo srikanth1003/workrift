@@ -10,6 +10,8 @@ const mockChrome = {
   },
   runtime: {
     onMessage: { addListener: vi.fn() },
+    onInstalled: { addListener: vi.fn() },
+    getURL: vi.fn((path: string) => `chrome-extension://test/${path}`),
   },
   alarms: {
     create: vi.fn(),

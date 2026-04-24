@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, "src/popup/index.html"),
         dashboard: resolve(__dirname, "src/dashboard/index.html"),
+        onboarding: resolve(__dirname, "src/onboarding/index.html"),
         "service-worker": resolve(__dirname, "src/background/service-worker.ts"),
         "content-script": resolve(__dirname, "src/content/content-script.ts"),
       },
