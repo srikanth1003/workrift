@@ -1,10 +1,11 @@
 import Dexie, { type Table } from "dexie";
-import type { WorkEvent, DetectedPattern, DailySummary, DomainStat } from "./types";
+import type { WorkEvent, DetectedPattern, DailySummary, DomainStat, ActivityEvent } from "./types";
 
 class WorkRecognizerDB extends Dexie {
   events!: Table<WorkEvent, number>;
   patterns!: Table<DetectedPattern, number>;
   dailySummaries!: Table<DailySummary, number>;
+  activities!: Table<ActivityEvent, number>;
 
   constructor() {
     super("WorkRecognizerDB");
@@ -12,6 +13,12 @@ class WorkRecognizerDB extends Dexie {
       events: "++id, type, timestamp, domain, [type+timestamp]",
       patterns: "++id, type, lastSeen",
       dailySummaries: "++id, &date",
+    });
+    this.version(2).stores({
+      events: "++id, type, timestamp, domain, [type+timestamp]",
+      patterns: "++id, type, lastSeen",
+      dailySummaries: "++id, &date",
+      activities: "++id, type, app, domain, startTime, [app+startTime]",
     });
   }
 }
@@ -74,4 +81,15 @@ export async function getDomainStats(
 export async function clearOldEvents(daysToKeep: number): Promise<void> {
   const cutoff = Date.now() - daysToKeep * 24 * 3600_000;
   await db.events.where("timestamp").below(cutoff).delete();
+}
+
+export async function addActivity(activity: Omit<ActivityEvent, "id">): Promise<number> {
+  return db.activities.add(activity as ActivityEvent);
+}
+
+export async function getActivitiesByDateRange(
+  start: number,
+  end: number
+): Promise<ActivityEvent[]> {
+  return db.activities.where("startTime").between(start, end).toArray();
 }

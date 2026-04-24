@@ -9,6 +9,18 @@ const mockChrome = {
 
 vi.stubGlobal("chrome", mockChrome);
 
+vi.mock("../../src/content/activity-tracker", () => ({
+  trackFormField: vi.fn(),
+  trackCopyPaste: vi.fn(),
+  trackTypingStart: vi.fn(),
+  trackTypingEnd: vi.fn(),
+  initActivityTracker: vi.fn(),
+}));
+
+vi.mock("../../src/content/page-analyzer", () => ({
+  getFieldLabel: vi.fn().mockReturnValue("Company Name"),
+}));
+
 describe("content-script handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,6 +118,7 @@ describe("content-script handlers", () => {
             metadata: {
               fieldType: "text",
               fieldName: "firstName",
+              fieldLabel: "Company Name",
               tagName: "INPUT",
             },
           },

@@ -1,4 +1,4 @@
-import { addEvent, clearOldEvents, getEventsByDateRange, getDomainStats } from "@shared/db";
+import { addEvent, clearOldEvents, getEventsByDateRange, getDomainStats, addActivity, getActivitiesByDateRange } from "@shared/db";
 import { createWorkEvent } from "@shared/events";
 import {
   detectContextSwitching,
@@ -60,7 +60,16 @@ interface GetTodayEventsMessage {
   type: "GET_TODAY_EVENTS";
 }
 
-type Message = ContentMessage | GetStatsMessage | GetPatternsMessage | GetTodayEventsMessage;
+interface ActivityEventMessage {
+  type: "ACTIVITY_EVENT";
+  payload: import("@shared/types").ActivityEvent;
+}
+
+interface GetActivitiesMessage {
+  type: "GET_TODAY_ACTIVITIES";
+}
+
+type Message = ContentMessage | GetStatsMessage | GetPatternsMessage | GetTodayEventsMessage | ActivityEventMessage | GetActivitiesMessage;
 
 export async function handleMessage(
   message: Message,
@@ -114,6 +123,16 @@ export async function handleMessage(
     sendResponse({
       patterns: [...contextSwitching, ...sequences, ...copyPaste],
     });
+  } else if (message.type === "ACTIVITY_EVENT") {
+    const { payload } = message as ActivityEventMessage;
+    await addActivity(payload);
+    sendResponse({ ok: true });
+  } else if (message.type === "GET_TODAY_ACTIVITIES") {
+    const now = Date.now();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const activities = await getActivitiesByDateRange(startOfDay.getTime(), now);
+    sendResponse({ activities });
   }
 }
 

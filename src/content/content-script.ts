@@ -1,3 +1,6 @@
+import { trackFormField, trackCopyPaste, trackTypingStart, trackTypingEnd, initActivityTracker } from "./activity-tracker";
+import { getFieldLabel } from "./page-analyzer";
+
 function sendEvent(
   type: "copy" | "paste" | "form_fill" | "text_selection",
   metadata: Record<string, string | number | boolean>
@@ -12,9 +15,7 @@ function sendEvent(
         metadata,
       },
     },
-    () => {
-      // Ignore response
-    }
+    () => {}
   );
 }
 
@@ -22,12 +23,14 @@ export function handleCopy(e: ClipboardEvent): void {
   const text = e.clipboardData?.getData("text/plain") ?? "";
   if (!text) return;
   sendEvent("copy", { textLength: text.length });
+  trackCopyPaste();
 }
 
 export function handlePaste(e: ClipboardEvent): void {
   const text = e.clipboardData?.getData("text/plain") ?? "";
   if (!text) return;
   sendEvent("paste", { textLength: text.length });
+  trackCopyPaste();
 }
 
 let formFillTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -38,11 +41,17 @@ export function handleFormInput(e: Event): void {
   const tag = target.tagName.toUpperCase();
   if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
 
+  trackFormField(target as HTMLInputElement);
+  trackTypingStart();
+
   if (formFillTimeout) clearTimeout(formFillTimeout);
   formFillTimeout = setTimeout(() => {
+    trackTypingEnd();
+    const label = getFieldLabel(target as HTMLInputElement);
     sendEvent("form_fill", {
       fieldType: (target as HTMLInputElement).type ?? "text",
       fieldName: target.name ?? "",
+      fieldLabel: label,
       tagName: tag,
     });
   }, 1000);
@@ -66,6 +75,8 @@ function init(): void {
     if (selectionTimeout) clearTimeout(selectionTimeout);
     selectionTimeout = setTimeout(handleSelection, 500);
   });
+
+  initActivityTracker();
 }
 
 init();

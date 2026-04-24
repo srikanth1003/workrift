@@ -6,7 +6,8 @@ export type EventType =
   | "form_fill"
   | "text_selection"
   | "page_idle"
-  | "page_active";
+  | "page_active"
+  | "activity";
 
 export interface WorkEvent {
   id?: number;
@@ -51,4 +52,45 @@ export interface DailySummary {
   tabSwitchCount: number;
   copyPasteCount: number;
   topPatterns: DetectedPattern[];
+}
+
+export interface ActivityContext {
+  app: string;
+  section: string;
+  mode: string;
+  detail: string;
+  pageMode: string;
+  headings: string[];
+  formFields: string[];
+  buttons: string[];
+}
+
+export type ActivityType =
+  | "email_composing"
+  | "crm_data_entry"
+  | "prospect_research"
+  | "document_writing"
+  | "spreadsheet_editing"
+  | "messaging"
+  | "scheduling"
+  | "search_research"
+  | "content_reading"
+  | "form_filling"
+  | "general_browsing";
+
+export interface ActivityEvent {
+  id?: number;
+  type: ActivityType;
+  app: string;
+  section: string;
+  url: string;
+  domain: string;
+  title: string;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  formFieldsInteracted: string[];
+  copyPasteCount: number;
+  typingDurationMs: number;
+  context: ActivityContext;
 }
