@@ -1,4 +1,4 @@
-import { addEvent, clearOldEvents, getEventsByDateRange } from "@shared/db";
+import { addEvent, clearOldEvents, getEventsByDateRange, getDomainStats } from "@shared/db";
 import { createWorkEvent } from "@shared/events";
 import {
   detectContextSwitching,
@@ -56,7 +56,11 @@ interface GetPatternsMessage {
   type: "GET_PATTERNS";
 }
 
-type Message = ContentMessage | GetStatsMessage | GetPatternsMessage;
+interface GetTodayEventsMessage {
+  type: "GET_TODAY_EVENTS";
+}
+
+type Message = ContentMessage | GetStatsMessage | GetPatternsMessage | GetTodayEventsMessage;
 
 export async function handleMessage(
   message: Message,
@@ -73,6 +77,7 @@ export async function handleMessage(
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const events = await getEventsByDateRange(startOfDay.getTime(), now);
+    const domainStats = await getDomainStats(startOfDay.getTime(), now);
 
     const tabSwitches = events.filter((e) => e.type === "tab_switch").length;
     const copyPastes = events.filter(
@@ -88,7 +93,14 @@ export async function handleMessage(
       activeMinutes: Math.round(events.length > 0
         ? (events[events.length - 1].timestamp - events[0].timestamp) / 60_000
         : 0),
+      domainStats,
     });
+  } else if (message.type === "GET_TODAY_EVENTS") {
+    const now = Date.now();
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const events = await getEventsByDateRange(startOfDay.getTime(), now);
+    sendResponse({ events });
   } else if (message.type === "GET_PATTERNS") {
     const now = Date.now();
     const startOfDay = new Date();
