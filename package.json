@@ -7,15 +7,15 @@
     "doc": "docs"
   },
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build",
+    "dev": "npx tsx scripts/build.ts && echo 'Reload extension in chrome://extensions'",
+    "build": "npx tsx scripts/build.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "dexie": "^4.4.2",
     "react": "^19.2.5",

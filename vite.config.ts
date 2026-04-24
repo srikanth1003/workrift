@@ -18,8 +18,13 @@ export default defineConfig({
         "content-script": resolve(__dirname, "src/content/content-script.ts"),
       },
       output: {
-        entryFileNames: "[name].js",
-        chunkFileNames: "chunks/[name]-[hash].js",
+        entryFileNames: (chunkInfo) => {
+          if (chunkInfo.name === "service-worker" || chunkInfo.name === "content-script") {
+            return "[name].js";
+          }
+          return "assets/[name]-[hash].js";
+        },
+        chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
