@@ -9,9 +9,41 @@ import { PeriodSelector, getRange } from "./components/PeriodSelector";
 import type { DateRange } from "./components/PeriodSelector";
 import { WorkflowSequences } from "./components/WorkflowSequences";
 import { Settings } from "./components/Settings";
-import type { WorkEvent, DetectedPattern, DomainStat, ActivityEvent } from "@shared/types";
+import { InstantInsights } from "./components/InstantInsights";
+import type {
+  WorkEvent,
+  DetectedPattern,
+  DomainStat,
+  ActivityEvent,
+} from "@shared/types";
 
 const defaultRange = getRange("today", "");
+
+function Section({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  defaultOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 w-full text-left mb-2 group"
+      >
+        <span className="text-gray-500 text-sm w-4">{open ? "▾" : "▸"}</span>
+        <span className="text-sm font-medium text-gray-400 uppercase tracking-wide group-hover:text-gray-300 transition-colors">
+          {title}
+        </span>
+      </button>
+      {open && children}
+    </div>
+  );
+}
 
 export function App() {
   const [events, setEvents] = useState<WorkEvent[]>([]);
@@ -20,7 +52,9 @@ export function App() {
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>(defaultRange);
-  const [clearConfirm, setClearConfirm] = useState<"none" | "period" | "all">("none");
+  const [clearConfirm, setClearConfirm] = useState<"none" | "period" | "all">(
+    "none"
+  );
 
   const fetchActivities = useCallback((range: DateRange) => {
     chrome.runtime.sendMessage({
@@ -28,7 +62,9 @@ export function App() {
       startTime: range.startTime,
       endTime: range.endTime,
     }).then((response) => {
-      setActivities((response as { activities: ActivityEvent[] })?.activities ?? []);
+      setActivities(
+        (response as { activities: ActivityEvent[] })?.activities ?? []
+      );
     });
   }, []);
 
@@ -52,9 +88,13 @@ export function App() {
         domainStats?: DomainStat[];
       };
       setDomainStats(typedStats.domainStats ?? []);
-      setPatterns((patternsResponse as { patterns: DetectedPattern[] }).patterns);
+      setPatterns(
+        (patternsResponse as { patterns: DetectedPattern[] }).patterns
+      );
       setEvents((eventsResponse as { events: WorkEvent[] })?.events ?? []);
-      setActivities((activitiesResponse as { activities: ActivityEvent[] })?.activities ?? []);
+      setActivities(
+        (activitiesResponse as { activities: ActivityEvent[] })?.activities ?? []
+      );
       setLoading(false);
     });
   }, []);
@@ -95,11 +135,17 @@ export function App() {
 
   const todayStats = {
     totalTabSwitches: events.filter((e) => e.type === "tab_switch").length,
-    totalCopyPastes: events.filter((e) => e.type === "copy" || e.type === "paste").length,
+    totalCopyPastes: events.filter(
+      (e) => e.type === "copy" || e.type === "paste"
+    ).length,
     totalDomains: new Set(events.map((e) => e.domain).filter(Boolean)).size,
-    totalActiveMinutes: events.length > 1
-      ? Math.round((events[events.length - 1].timestamp - events[0].timestamp) / 60_000)
-      : 0,
+    totalActiveMinutes:
+      events.length > 1
+        ? Math.round(
+            (events[events.length - 1].timestamp - events[0].timestamp) /
+              60_000
+          )
+        : 0,
     patternCount: patterns.length,
   };
 
@@ -108,14 +154,20 @@ export function App() {
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center font-bold">W</div>
-            <h1 className="text-xl font-semibold">Work Recognizer</h1>
+            <div className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center font-bold">
+              W
+            </div>
+            <h1 className="text-xl font-semibold">Workrift</h1>
           </div>
           <div className="flex items-center gap-3">
             <PeriodSelector onChange={handlePeriodChange} />
             <div className="relative">
               <button
-                onClick={() => setClearConfirm(clearConfirm === "none" ? "period" : "none")}
+                onClick={() =>
+                  setClearConfirm(
+                    clearConfirm === "none" ? "period" : "none"
+                  )
+                }
                 className="px-3 py-1.5 text-sm text-gray-400 hover:text-red-400 bg-gray-800 rounded-lg transition-colors"
                 title="Clear tracking data"
               >
@@ -123,7 +175,9 @@ export function App() {
               </button>
               {clearConfirm !== "none" && (
                 <div className="absolute right-0 top-full mt-2 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-xl z-10 w-64">
-                  <p className="text-sm text-gray-300 mb-3">What do you want to clear?</p>
+                  <p className="text-sm text-gray-300 mb-3">
+                    What do you want to clear?
+                  </p>
                   <div className="space-y-2">
                     <button
                       onClick={handleClearPeriod}
@@ -155,16 +209,36 @@ export function App() {
             </div>
           </div>
         </div>
+
         <div className="space-y-6">
-          <ActivityBreakdown activities={activities} periodLabel={dateRange.label} />
-          <WorkflowSequences dateRange={dateRange} />
-          <AIInsights dateRange={dateRange} />
-          <WeeklyReport stats={todayStats} />
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <TopSites stats={domainStats} />
-            <TimelineView events={events} />
-          </div>
-          <PatternList patterns={patterns} />
+          <InstantInsights activities={activities} />
+
+          <Section title="Activity Breakdown" defaultOpen={true}>
+            <ActivityBreakdown
+              activities={activities}
+              periodLabel={dateRange.label}
+            />
+          </Section>
+
+          <Section title="Cross-App Workflows" defaultOpen={true}>
+            <WorkflowSequences dateRange={dateRange} />
+          </Section>
+
+          <Section title="AI Workflow Analysis" defaultOpen={true}>
+            <AIInsights dateRange={dateRange} />
+          </Section>
+
+          <Section title="Details" defaultOpen={false}>
+            <div className="space-y-6">
+              <WeeklyReport stats={todayStats} />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <TopSites stats={domainStats} />
+                <TimelineView events={events} />
+              </div>
+              <PatternList patterns={patterns} />
+            </div>
+          </Section>
+
           <Settings />
         </div>
       </div>
