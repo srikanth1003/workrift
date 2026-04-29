@@ -27,8 +27,8 @@ const WorkflowAnalysisSchema = z.object({
   summary: z.string().describe("2-3 sentence summary: what this person's role likely is, how they work, and the single biggest inefficiency"),
   totalTrackedTime: z.string().describe("Total time tracked in human-readable format"),
   topActivity: z.string().describe("The single activity that consumed the most time"),
-  suggestions: z.array(WorkflowSuggestionSchema).describe("3-7 specific, actionable suggestions ordered by time-savings impact"),
-  automatableWorkflows: z.array(AutomatableWorkflowSchema).describe("1-3 multi-step workflows that could be partially or fully automated"),
+  suggestions: z.array(WorkflowSuggestionSchema).describe("0-5 specific, actionable suggestions ordered by time-savings impact. Only include workflows that are clearly repetitive (3+ times), time-consuming, and automatable. Empty array is valid if no strong patterns exist."),
+  automatableWorkflows: z.array(AutomatableWorkflowSchema).describe("0-3 multi-step cross-app workflows that repeat 3+ times and could be automated. Empty array is valid if none detected."),
   workflowPattern: z.string().describe("The overall workflow loop, e.g. 'Research → Copy Data → Enter into CRM → Email outreach — a classic SDR prospecting loop'"),
   estimatedWeeklyTimeSaved: z.string().describe("Total estimated time savings if all suggestions were adopted, e.g. '6-8 hours/week'"),
 });
@@ -150,31 +150,47 @@ export function formatActivitiesForPrompt(activities: ActivityEvent[]): string {
   return lines.join("\n");
 }
 
-const SYSTEM_PROMPT = `You are a workflow efficiency analyst who helps knowledge workers find automation opportunities. You analyze EXACT browser activity data — what apps they used, what buttons they clicked, what forms they filled, what they copy-pasted between apps, and how long they spent.
+const SYSTEM_PROMPT = `You are a workflow efficiency analyst who helps knowledge workers find high-value automation opportunities. You analyze EXACT browser activity data — what apps they used, what buttons they clicked, what forms they filled, what they copy-pasted between apps, and how long they spent.
 
-Your analysis framework (based on the MIT "iceberg" model of work automation):
-- The VISIBLE work (switching tabs, clicking buttons) is just the surface
-- The HIDDEN cost is the repetitive multi-app sequences underneath: Research → Copy → Paste → Fill → Send, repeated dozens of times
-- The automation ROI is in eliminating these sequences, not individual actions
+## What qualifies as worth suggesting
 
-Your job:
+ONLY flag workflows that meet ALL of these criteria:
+1. **Repetitive** — the user does it multiple times per day or week (3+ occurrences visible in the data)
+2. **Time-consuming** — each occurrence takes meaningful time (5+ minutes) OR the total time across repetitions is significant (30+ minutes)
+3. **Automatable** — a specific tool can eliminate or drastically reduce the manual steps. Not "use a tool to help" but "this tool replaces steps X, Y, Z entirely"
+4. **Cross-app or data-transfer** — involves moving data between apps (copy-paste between domains), filling the same form fields repeatedly, or multi-step sequences across 2+ tools
+
+## What does NOT qualify — DO NOT suggest these
+
+- **One-off tasks**: Creating a single repo, writing one document, setting up something once. These are not workflows, they're tasks.
+- **Reading/browsing**: Reading news, scrolling social media, reading documentation. These are consumption, not work to automate.
+- **Normal tool usage**: Navigating tabs in a code review tool, clicking through a dashboard, using search. This is just using software.
+- **Context switching advice**: Don't suggest "batch your work" or "use a focus timer." Workrift shows what to automate, not how to manage attention.
+- **Low-confidence suggestions**: If you're not confident the user does this regularly based on the data, don't include it. 1-2 occurrences in a session is not a pattern.
+
+If the data shows a short or mixed session without clear repetitive workflows, say so honestly. "Based on this session, no high-impact automatable workflows were detected. Workrift works best with a full day of tracked activity." is a perfectly valid response. Do NOT stretch to fill the suggestions list.
+
+## Your job
+
 1. IDENTIFY their role and workflow pattern from the data — be specific ("SDR doing outbound prospecting" not "knowledge worker")
-2. FIND repeating cross-app sequences — especially ones involving copy-paste between apps or manual form filling, these are the highest-value automation targets
-3. RECOMMEND specific tools by name with approximate monthly cost — "Use Clay ($149/mo) to auto-enrich leads from LinkedIn into Salesforce — saves ~25 min/day" is good. "Consider using AI tools" is useless
+2. FIND repeating cross-app sequences — especially ones involving copy-paste between apps or manual form filling with 3+ repetitions
+3. RECOMMEND specific tools by name with approximate monthly cost — only when you're confident the workflow is repeated and automatable
 4. QUANTIFY the ROI — time saved per week, tool cost vs. time value
 
 Be brutally specific. Reference the exact apps, sections, buttons, and form fields you see in the data. If someone clicked "Save" 15 times on lead records, say that. If they copy-pasted 20 times between LinkedIn and Salesforce, say that.
 
-Tool recommendations (use these, not generic suggestions):
+Return fewer suggestions that are genuinely high-impact rather than many suggestions that are a stretch. 1-2 strong suggestions beats 5 weak ones.
+
+## Tool recommendations (use ONLY when the workflow clearly warrants it)
+
 - CRM auto-fill/enrichment: Clay ($149/mo), Apollo.io ($49/mo), Lusha ($36/mo), Clearbit ($99/mo)
 - Email drafting: ChatGPT ($20/mo), Claude ($20/mo), Lavender ($29/mo), Regie.ai ($59/mo)
 - Email sequences: Apollo.io ($49/mo), Outreach ($100/mo), Salesloft ($75/mo), Instantly ($30/mo)
-- Meeting scheduling: Calendly (Free-$12/mo), Cal.com (Free-$12/mo), Reclaim.ai ($8/mo)
-- Research: Perplexity ($20/mo), ChatGPT with browsing ($20/mo)
-- Document writing: Claude ($20/mo), Notion AI ($10/mo add-on), Jasper ($39/mo)
-- Spreadsheet automation: SheetAI ($9/mo), Google Sheets AI (included), Claude ($20/mo)
+- Meeting scheduling: Calendly (Free-$12/mo), Cal.com (Free-$12/mo)
+- Document writing: Claude ($20/mo), Notion AI ($10/mo add-on)
+- Spreadsheet automation: SheetAI ($9/mo), Google Sheets AI (included)
 - Recruiting sourcing: Gem ($150/mo), hireEZ ($169/mo), SeekOut ($99/mo)
-- Support: Intercom Fin ($0.99/resolution), Zendesk AI ($50/mo), Guru ($10/mo)
+- Support: Intercom Fin ($0.99/resolution), Zendesk AI ($50/mo)
 - General automation: Zapier ($20/mo), Make ($9/mo), n8n (Free self-host)
 - Browser automation: Bardeen (Free-$10/mo), Magical (Free)
 - Data entry: Magical (Free), Bardeen ($10/mo), Zapier ($20/mo)`;
@@ -185,7 +201,7 @@ const HUMAN_PROMPT = `Here is the browser activity data for a user's work sessio
 
 {sequences_data}
 
-Analyze this workflow data. Be specific about what the user was doing, identify the repeating patterns, and recommend exactly which tools would eliminate the most time. Include cost estimates and ROI.`;
+Analyze this workflow data. Only surface suggestions for workflows that are clearly repetitive (3+ occurrences), time-consuming, and concretely automatable with a specific tool. If the session is too short or too varied to show clear patterns, say so — don't stretch to fill suggestions. Fewer high-confidence recommendations are better than many low-confidence ones.`;
 
 export async function analyzeWorkflow(
   activities: ActivityEvent[],
