@@ -1,5 +1,5 @@
-import { ChatBedrockConverse } from "@langchain/aws";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { z } from "zod";
 import type { ActivityEvent } from "./types";
 import { detectWorkflowSequences, formatSequencesForPrompt } from "./workflow-sequences";
@@ -187,29 +187,10 @@ const HUMAN_PROMPT = `Here is the browser activity data for a user's work sessio
 
 Analyze this workflow data. Be specific about what the user was doing, identify the repeating patterns, and recommend exactly which tools would eliminate the most time. Include cost estimates and ROI.`;
 
-export interface AwsCredentials {
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken?: string;
-  region: string;
-  modelId?: string;
-}
-
 export async function analyzeWorkflow(
   activities: ActivityEvent[],
-  credentials: AwsCredentials,
+  model: BaseChatModel,
 ): Promise<WorkflowAnalysis> {
-  const model = new ChatBedrockConverse({
-    model: credentials.modelId || "us.anthropic.claude-sonnet-4-6-v1",
-    region: credentials.region,
-    credentials: {
-      accessKeyId: credentials.accessKeyId,
-      secretAccessKey: credentials.secretAccessKey,
-      ...(credentials.sessionToken ? { sessionToken: credentials.sessionToken } : {}),
-    },
-    temperature: 0.3,
-  });
-
   const structuredModel = model.withStructuredOutput(WorkflowAnalysisSchema);
 
   const prompt = ChatPromptTemplate.fromMessages([
