@@ -51,9 +51,14 @@ describe("detectPageMode", () => {
     expect(detectPageMode()).toBe("form");
   });
 
-  it("detects compose mode with contenteditable", () => {
-    document.body.innerHTML = `<div contenteditable="true">Type here...</div>`;
+  it("detects compose mode with compose class", () => {
+    document.body.innerHTML = `<div class="compose">Type here...</div>`;
     expect(detectPageMode()).toBe("compose");
+  });
+
+  it("ignores small contenteditable elements", () => {
+    document.body.innerHTML = `<div contenteditable="true">comment box</div>`;
+    expect(detectPageMode()).not.toBe("compose");
   });
 
   it("detects list mode with table", () => {

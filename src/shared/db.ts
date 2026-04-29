@@ -20,6 +20,12 @@ class WorkRecognizerDB extends Dexie {
       dailySummaries: "++id, &date",
       activities: "++id, type, app, domain, startTime, [app+startTime]",
     });
+    this.version(3).stores({
+      events: "++id, type, timestamp, domain, [type+timestamp]",
+      patterns: "++id, type, lastSeen",
+      dailySummaries: "++id, &date",
+      activities: "++id, app, domain, startTime, [app+startTime]",
+    });
   }
 }
 
@@ -81,6 +87,19 @@ export async function getDomainStats(
 export async function clearOldEvents(daysToKeep: number): Promise<void> {
   const cutoff = Date.now() - daysToKeep * 24 * 3600_000;
   await db.events.where("timestamp").below(cutoff).delete();
+}
+
+export async function clearDataByRange(start: number, end: number): Promise<{ events: number; activities: number }> {
+  const deletedEvents = await db.events.where("timestamp").between(start, end).delete();
+  const deletedActivities = await db.activities.where("startTime").between(start, end).delete();
+  return { events: deletedEvents, activities: deletedActivities };
+}
+
+export async function clearAllData(): Promise<void> {
+  await db.events.clear();
+  await db.activities.clear();
+  await db.patterns.clear();
+  await db.dailySummaries.clear();
 }
 
 export async function addActivity(activity: Omit<ActivityEvent, "id">): Promise<number> {

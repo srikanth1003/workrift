@@ -65,22 +65,22 @@ export interface ActivityContext {
   buttons: string[];
 }
 
-export type ActivityType =
-  | "email_composing"
-  | "crm_data_entry"
-  | "prospect_research"
-  | "document_writing"
-  | "spreadsheet_editing"
-  | "messaging"
-  | "scheduling"
-  | "search_research"
-  | "content_reading"
-  | "form_filling"
-  | "general_browsing";
+export interface WorkflowSequence {
+  steps: {
+    app: string;
+    section: string;
+    detail: string;
+    avgDurationMs: number;
+    actions: string[];
+  }[];
+  frequency: number;
+  totalTimeMs: number;
+  involvesCopyPaste: boolean;
+  involvesFormFill: boolean;
+}
 
 export interface ActivityEvent {
   id?: number;
-  type: ActivityType;
   app: string;
   section: string;
   url: string;
@@ -90,6 +90,8 @@ export interface ActivityEvent {
   endTime: number;
   durationMs: number;
   formFieldsInteracted: string[];
+  clickedButtons: string[];
+  clickedLinks: string[];
   copyPasteCount: number;
   typingDurationMs: number;
   context: ActivityContext;

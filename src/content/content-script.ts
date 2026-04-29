@@ -1,4 +1,4 @@
-import { trackFormField, trackCopyPaste, trackTypingStart, trackTypingEnd, initActivityTracker } from "./activity-tracker";
+import { trackFormField, trackCopyPaste, trackTypingStart, trackTypingEnd, trackButtonClick, trackLinkClick, initActivityTracker } from "./activity-tracker";
 import { getFieldLabel } from "./page-analyzer";
 
 function sendEvent(
@@ -65,10 +65,38 @@ function handleSelection(): void {
   }
 }
 
+function getClickLabel(el: HTMLElement): string {
+  return (
+    el.getAttribute("aria-label") ||
+    el.textContent?.trim().slice(0, 80) ||
+    el.getAttribute("title") ||
+    ""
+  );
+}
+
+function handleClick(e: MouseEvent): void {
+  const target = e.target as HTMLElement;
+  if (!target) return;
+
+  const button = target.closest("button, [role='button'], input[type='submit']") as HTMLElement | null;
+  if (button) {
+    const label = getClickLabel(button);
+    if (label) trackButtonClick(label);
+    return;
+  }
+
+  const link = target.closest("a") as HTMLAnchorElement | null;
+  if (link) {
+    const label = getClickLabel(link) || link.hostname;
+    if (label) trackLinkClick(label);
+  }
+}
+
 function init(): void {
   document.addEventListener("copy", handleCopy);
   document.addEventListener("paste", handlePaste);
   document.addEventListener("input", handleFormInput);
+  document.addEventListener("click", handleClick, true);
 
   let selectionTimeout: ReturnType<typeof setTimeout> | null = null;
   document.addEventListener("mouseup", () => {

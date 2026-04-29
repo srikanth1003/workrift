@@ -1,26 +1,17 @@
 import { detectApp } from "./app-detectors";
 import { analyzePageStructure, getFieldLabel } from "./page-analyzer";
-import type { ActivityType, ActivityContext, ActivityEvent } from "@shared/types";
+import type { ActivityContext, ActivityEvent } from "@shared/types";
 
-function classifyActivity(app: string, section: string, mode: string, pageMode: string): ActivityType {
-  if (mode === "composing" && (app === "gmail" || app === "outlook")) return "email_composing";
-  if (mode === "composing" && (app === "slack" || app === "linkedin")) return "messaging";
-  if (mode === "editing" && (app === "salesforce" || app === "hubspot")) return "crm_data_entry";
-  if (mode === "searching" || section.includes("search")) return "search_research";
-  if (app === "linkedin" && section === "profile") return "prospect_research";
-  if (app === "google-docs" || app === "notion") return "document_writing";
-  if (app === "google-sheets") return "spreadsheet_editing";
-  if (app === "google-calendar") return "scheduling";
-  if (pageMode === "form") return "form_filling";
-  if (pageMode === "article") return "content_reading";
-  if (pageMode === "compose") return "email_composing";
-  return "general_browsing";
-}
+const MAX_GAP_MS = 60_000;
 
 interface TrackerState {
   startTime: number;
-  lastActiveTime: number;
+  activeDurationMs: number;
+  activeResumedAt: number | null;
+  lastTickAt: number;
   formFieldsInteracted: Set<string>;
+  clickedButtons: string[];
+  clickedLinks: string[];
   copyPasteCount: number;
   typingStartTime: number | null;
   totalTypingMs: number;
@@ -40,22 +31,54 @@ function sendActivity(activity: Omit<ActivityEvent, "id">): void {
   );
 }
 
+function tick(): void {
+  if (!state || !state.activeResumedAt) return;
+  const now = Date.now();
+  const elapsed = now - state.lastTickAt;
+  if (elapsed > MAX_GAP_MS) {
+    state.activeResumedAt = now;
+  }
+  state.lastTickAt = now;
+}
+
+function getActiveDuration(): number {
+  if (!state) return 0;
+  tick();
+  if (!state.activeResumedAt) return state.activeDurationMs;
+  return state.activeDurationMs + (Date.now() - state.activeResumedAt);
+}
+
+function pause(): void {
+  if (!state || !state.activeResumedAt) return;
+  tick();
+  state.activeDurationMs += Date.now() - state.activeResumedAt;
+  state.activeResumedAt = null;
+  if (state.typingStartTime) {
+    state.totalTypingMs += Date.now() - state.typingStartTime;
+    state.typingStartTime = null;
+  }
+}
+
+function resume(): void {
+  if (!state) return;
+  const now = Date.now();
+  const gap = now - state.lastTickAt;
+  if (gap > MAX_GAP_MS) {
+    state.lastTickAt = now;
+  }
+  state.activeResumedAt = now;
+  state.lastTickAt = now;
+}
+
 function buildActivityEvent(): Omit<ActivityEvent, "id"> | null {
   if (!state) return null;
 
   const now = Date.now();
-  const duration = now - state.startTime;
+  const duration = getActiveDuration();
   if (duration < 3000) return null;
 
   const appContext = detectApp(location.href, location.pathname);
   const pageStructure = analyzePageStructure();
-
-  const activityType = classifyActivity(
-    appContext.app,
-    appContext.section,
-    appContext.mode,
-    pageStructure.pageMode
-  );
 
   const context: ActivityContext = {
     app: appContext.app,
@@ -71,7 +94,6 @@ function buildActivityEvent(): Omit<ActivityEvent, "id"> | null {
   const domain = location.hostname.replace(/^www\./, "");
 
   return {
-    type: activityType,
     app: appContext.app,
     section: appContext.section,
     url: location.href,
@@ -81,6 +103,8 @@ function buildActivityEvent(): Omit<ActivityEvent, "id"> | null {
     endTime: now,
     durationMs: duration,
     formFieldsInteracted: Array.from(state.formFieldsInteracted),
+    clickedButtons: state.clickedButtons.slice(0, 50),
+    clickedLinks: state.clickedLinks.slice(0, 50),
     copyPasteCount: state.copyPasteCount,
     typingDurationMs: state.totalTypingMs,
     context,
@@ -96,10 +120,16 @@ function flush(): void {
 }
 
 function resetState(): void {
+  const now = Date.now();
+  const isVisible = document.visibilityState === "visible" && document.hasFocus();
   state = {
-    startTime: Date.now(),
-    lastActiveTime: Date.now(),
+    startTime: now,
+    activeDurationMs: 0,
+    activeResumedAt: isVisible ? now : null,
+    lastTickAt: now,
     formFieldsInteracted: new Set(),
+    clickedButtons: [],
+    clickedLinks: [],
     copyPasteCount: 0,
     typingStartTime: null,
     totalTypingMs: 0,
@@ -107,22 +137,25 @@ function resetState(): void {
   };
 }
 
-function onActivity(): void {
-  if (!state) resetState();
-  state!.lastActiveTime = Date.now();
-}
-
 export function trackFormField(field: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): void {
   if (!state) resetState();
   const label = getFieldLabel(field);
   state!.formFieldsInteracted.add(label);
-  onActivity();
+}
+
+export function trackButtonClick(label: string): void {
+  if (!state) resetState();
+  state!.clickedButtons.push(label);
+}
+
+export function trackLinkClick(label: string): void {
+  if (!state) resetState();
+  state!.clickedLinks.push(label);
 }
 
 export function trackCopyPaste(): void {
   if (!state) resetState();
   state!.copyPasteCount++;
-  onActivity();
 }
 
 export function trackTypingStart(): void {
@@ -130,7 +163,6 @@ export function trackTypingStart(): void {
   if (!state!.typingStartTime) {
     state!.typingStartTime = Date.now();
   }
-  onActivity();
 }
 
 export function trackTypingEnd(): void {
@@ -143,11 +175,36 @@ export function initActivityTracker(): void {
   resetState();
   flushInterval = setInterval(flush, 30_000);
 
+  setInterval(() => {
+    if (state && state.activeResumedAt) {
+      state.lastTickAt = Date.now();
+    }
+  }, 10_000);
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      pause();
+    } else {
+      if (state && (Date.now() - state.lastTickAt) > MAX_GAP_MS) {
+        flush();
+      }
+      resume();
+    }
+  });
+
+  window.addEventListener("blur", pause);
+  window.addEventListener("focus", () => {
+    if (state && (Date.now() - state.lastTickAt) > MAX_GAP_MS) {
+      flush();
+    }
+    resume();
+  });
+
   window.addEventListener("beforeunload", () => {
     flush();
   });
 
-  let urlCheckInterval = setInterval(() => {
+  setInterval(() => {
     if (state && location.href !== state.lastUrl) {
       flush();
     }

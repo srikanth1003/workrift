@@ -76,17 +76,22 @@ function isVisible(element: Element): boolean {
 }
 
 export function detectPageMode(): PageStructure["pageMode"] {
-  // Check for compose/editor area first (contenteditable, role="textbox", etc.)
-  const composeSelectors = [
-    '[contenteditable="true"]',
-    '[role="textbox"]',
-    '.compose',
-    '[data-editor]',
-  ];
+  const composeSelectors = ['.compose', '[data-editor]'];
   for (const selector of composeSelectors) {
     const element = document.querySelector(selector);
     if (element && isVisible(element)) {
       return "compose";
+    }
+  }
+
+  const editableSelectors = ['[contenteditable="true"]', '[role="textbox"]'];
+  for (const selector of editableSelectors) {
+    const element = document.querySelector(selector);
+    if (element && isVisible(element) && element instanceof HTMLElement) {
+      const rect = element.getBoundingClientRect();
+      if (rect.height >= 100 && rect.width >= 200) {
+        return "compose";
+      }
     }
   }
 

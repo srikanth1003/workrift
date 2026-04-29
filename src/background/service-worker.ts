@@ -1,10 +1,13 @@
-import { addEvent, clearOldEvents, getEventsByDateRange, getDomainStats, addActivity, getActivitiesByDateRange } from "@shared/db";
+import { addEvent, clearOldEvents, getEventsByDateRange, getDomainStats, addActivity, getActivitiesByDateRange, clearDataByRange, clearAllData } from "@shared/db";
 import { createWorkEvent } from "@shared/events";
 import {
   detectContextSwitching,
   detectRepetitiveSequences,
   detectFrequentCopyPaste,
 } from "@shared/patterns";
+import { analyzeWorkflow } from "@shared/workflow-analyzer";
+import type { AwsCredentials } from "@shared/workflow-analyzer";
+import { detectWorkflowSequences } from "@shared/workflow-sequences";
 
 let lastActiveTabId: number | null = null;
 
@@ -69,7 +72,54 @@ interface GetActivitiesMessage {
   type: "GET_TODAY_ACTIVITIES";
 }
 
-type Message = ContentMessage | GetStatsMessage | GetPatternsMessage | GetTodayEventsMessage | ActivityEventMessage | GetActivitiesMessage;
+interface AnalyzeWorkflowMessage {
+  type: "ANALYZE_WORKFLOW";
+  forceRefresh?: boolean;
+  startTime?: number;
+  endTime?: number;
+}
+
+interface GetActivitiesRangeMessage {
+  type: "GET_ACTIVITIES_RANGE";
+  startTime: number;
+  endTime: number;
+}
+
+interface SaveCredentialsMessage {
+  type: "SAVE_AWS_CREDENTIALS";
+  payload: AwsCredentials;
+}
+
+interface GetCredentialsMessage {
+  type: "GET_AWS_CREDENTIALS";
+}
+
+interface GetWorkflowSequencesMessage {
+  type: "GET_WORKFLOW_SEQUENCES";
+  startTime: number;
+  endTime: number;
+}
+
+interface ClearDataMessage {
+  type: "CLEAR_DATA";
+  startTime?: number;
+  endTime?: number;
+  clearAll?: boolean;
+}
+
+type Message =
+  | ContentMessage
+  | GetStatsMessage
+  | GetPatternsMessage
+  | GetTodayEventsMessage
+  | ActivityEventMessage
+  | GetActivitiesMessage
+  | GetActivitiesRangeMessage
+  | AnalyzeWorkflowMessage
+  | SaveCredentialsMessage
+  | GetCredentialsMessage
+  | GetWorkflowSequencesMessage
+  | ClearDataMessage;
 
 export async function handleMessage(
   message: Message,
@@ -133,6 +183,77 @@ export async function handleMessage(
     startOfDay.setHours(0, 0, 0, 0);
     const activities = await getActivitiesByDateRange(startOfDay.getTime(), now);
     sendResponse({ activities });
+  } else if (message.type === "GET_ACTIVITIES_RANGE") {
+    const { startTime, endTime } = message as GetActivitiesRangeMessage;
+    const activities = await getActivitiesByDateRange(startTime, endTime);
+    sendResponse({ activities });
+  } else if (message.type === "ANALYZE_WORKFLOW") {
+    const msg = message as AnalyzeWorkflowMessage;
+    const now = Date.now();
+    const rangeStart = msg.startTime ?? new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+    const rangeEnd = msg.endTime ?? now;
+    const cacheKey = `analysisCache_${rangeStart}`;
+
+    try {
+      if (!msg.forceRefresh) {
+        const cached = await chrome.storage.local.get(cacheKey);
+        const cache = cached[cacheKey] as { analysis: unknown; timestamp: number } | undefined;
+        if (cache && (now - cache.timestamp) < 4 * 60 * 60_000) {
+          sendResponse({ analysis: cache.analysis, cachedAt: cache.timestamp });
+          return;
+        }
+      }
+
+      const stored = await chrome.storage.local.get("awsCredentials");
+      const credentials = stored.awsCredentials as AwsCredentials | undefined;
+      if (!credentials?.accessKeyId || !credentials?.secretAccessKey) {
+        sendResponse({ error: "AWS credentials not configured. Go to Settings to add them." });
+        return;
+      }
+      const activities = await getActivitiesByDateRange(rangeStart, rangeEnd);
+      if (activities.length === 0) {
+        sendResponse({ error: "No activities recorded for this period." });
+        return;
+      }
+      const analysis = await analyzeWorkflow(activities, credentials);
+      const timestamp = Date.now();
+      await chrome.storage.local.set({ [cacheKey]: { analysis, timestamp } });
+      sendResponse({ analysis, cachedAt: timestamp });
+    } catch (err) {
+      sendResponse({ error: `Analysis failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  } else if (message.type === "GET_WORKFLOW_SEQUENCES") {
+    const msg = message as GetWorkflowSequencesMessage;
+    const activities = await getActivitiesByDateRange(msg.startTime, msg.endTime);
+    const sequences = detectWorkflowSequences(activities);
+    sendResponse({ sequences });
+  } else if (message.type === "SAVE_AWS_CREDENTIALS") {
+    const { payload } = message as SaveCredentialsMessage;
+    await chrome.storage.local.set({ awsCredentials: payload });
+    sendResponse({ ok: true });
+  } else if (message.type === "GET_AWS_CREDENTIALS") {
+    const stored = await chrome.storage.local.get("awsCredentials");
+    sendResponse({ credentials: stored.awsCredentials ?? null });
+  } else if (message.type === "CLEAR_DATA") {
+    const msg = message as ClearDataMessage;
+    try {
+      if (msg.clearAll) {
+        await clearAllData();
+        const allKeys = await chrome.storage.local.get(null);
+        const cacheKeys = Object.keys(allKeys).filter(k => k.startsWith("analysisCache_"));
+        if (cacheKeys.length > 0) await chrome.storage.local.remove(cacheKeys);
+        sendResponse({ ok: true, cleared: "all" });
+      } else if (msg.startTime && msg.endTime) {
+        const result = await clearDataByRange(msg.startTime, msg.endTime);
+        const cacheKey = `analysisCache_${msg.startTime}`;
+        await chrome.storage.local.remove(cacheKey);
+        sendResponse({ ok: true, cleared: result });
+      } else {
+        sendResponse({ error: "Provide startTime/endTime or clearAll" });
+      }
+    } catch (err) {
+      sendResponse({ error: `Clear failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   }
 }
 
