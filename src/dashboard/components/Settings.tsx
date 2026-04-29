@@ -1,35 +1,66 @@
 import { useEffect, useState } from "react";
+import { providers, getProvider } from "@shared/ai-providers";
+import type { AIConfig } from "@shared/ai-providers";
 
 export function Settings() {
-  const [accessKeyId, setAccessKeyId] = useState("");
-  const [secretAccessKey, setSecretAccessKey] = useState("");
-  const [sessionToken, setSessionToken] = useState("");
-  const [region, setRegion] = useState("us-east-1");
+  const [providerName, setProviderName] = useState("anthropic");
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [modelId, setModelId] = useState("");
+  const [customModel, setCustomModel] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
+  const provider = getProvider(providerName);
+
   useEffect(() => {
-    chrome.runtime.sendMessage({ type: "GET_AWS_CREDENTIALS" }).then((response) => {
-      const res = response as { credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string; region: string; modelId?: string } | null };
-      if (res.credentials) {
-        setAccessKeyId(res.credentials.accessKeyId);
-        setSecretAccessKey(res.credentials.secretAccessKey);
-        setSessionToken(res.credentials.sessionToken ?? "");
-        setRegion(res.credentials.region);
-        setModelId(res.credentials.modelId ?? "");
+    chrome.runtime.sendMessage({ type: "GET_AI_CONFIG" }).then((response) => {
+      const res = response as { config: AIConfig | null };
+      if (res.config) {
+        setProviderName(res.config.provider);
+        setCredentials(res.config.credentials);
+        setModelId(res.config.modelId);
+        const prov = getProvider(res.config.provider);
+        if (prov && !prov.models.some((m) => m.id === res.config!.modelId)) {
+          setCustomModel(true);
+        }
       }
     });
   }, []);
 
+  function handleProviderChange(name: string) {
+    setProviderName(name);
+    setCredentials({});
+    setCustomModel(false);
+    const prov = getProvider(name);
+    setModelId(prov?.models[0]?.id ?? "");
+  }
+
+  function handleCredentialChange(key: string, value: string) {
+    setCredentials((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleModelChange(value: string) {
+    if (value === "__custom__") {
+      setCustomModel(true);
+      setModelId("");
+    } else {
+      setCustomModel(false);
+      setModelId(value);
+    }
+  }
+
   async function handleSave() {
-    await chrome.runtime.sendMessage({
-      type: "SAVE_AWS_CREDENTIALS",
-      payload: { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}), region, ...(modelId ? { modelId } : {}) },
-    });
+    const config: AIConfig = { provider: providerName, credentials, modelId };
+    await chrome.runtime.sendMessage({ type: "SAVE_AI_CONFIG", payload: config });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
+
+  const requiredFilled = provider
+    ? provider.credentialFields
+        .filter((f) => f.required)
+        .every((f) => credentials[f.key]?.trim())
+    : false;
 
   return (
     <div className="bg-gray-800 rounded-xl p-6">
@@ -38,70 +69,86 @@ export function Settings() {
         className="flex items-center justify-between w-full text-left"
       >
         <h2 className="text-lg font-semibold text-white">Settings</h2>
-        <span className="text-gray-400 text-sm">{isOpen ? "Hide" : "Show"}</span>
+        <span className="text-gray-400 text-sm">{isOpen ? "▾" : "▸"}</span>
       </button>
 
       {isOpen && (
         <div className="mt-4 space-y-4">
           <p className="text-gray-400 text-sm">
-            AWS credentials for Bedrock AI analysis. These are stored locally in your browser.
+            Configure your AI provider for workflow analysis. Credentials are stored locally in your browser.
           </p>
+
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Access Key ID</label>
-            <input
-              type="text"
-              value={accessKeyId}
-              onChange={(e) => setAccessKeyId(e.target.value)}
+            <label className="block text-sm text-gray-400 mb-1">AI Provider</label>
+            <select
+              value={providerName}
+              onChange={(e) => handleProviderChange(e.target.value)}
               className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="AKIA..."
-            />
+            >
+              {providers.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
           </div>
+
+          {provider?.credentialFields.map((field) => (
+            <div key={field.key}>
+              <label className="block text-sm text-gray-400 mb-1">{field.label}</label>
+              <input
+                type={field.type}
+                value={credentials[field.key] ?? ""}
+                onChange={(e) => handleCredentialChange(field.key, e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                placeholder={field.placeholder}
+              />
+            </div>
+          ))}
+
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Secret Access Key</label>
-            <input
-              type="password"
-              value={secretAccessKey}
-              onChange={(e) => setSecretAccessKey(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="Your secret key"
-            />
+            <label className="block text-sm text-gray-400 mb-1">Model</label>
+            {provider && provider.models.length > 0 ? (
+              <>
+                <select
+                  value={customModel ? "__custom__" : modelId}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                >
+                  {provider.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                  <option value="__custom__">Custom model ID...</option>
+                </select>
+                {customModel && (
+                  <input
+                    type="text"
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    className="w-full mt-2 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                    placeholder="Enter custom model ID"
+                  />
+                )}
+              </>
+            ) : (
+              <input
+                type="text"
+                value={modelId}
+                onChange={(e) => setModelId(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                placeholder="Enter model or deployment name"
+              />
+            )}
           </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Session Token (optional, for temporary credentials)</label>
-            <input
-              type="password"
-              value={sessionToken}
-              onChange={(e) => setSessionToken(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="Your session token"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Region</label>
-            <input
-              type="text"
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="us-east-1"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Model ID (optional)</label>
-            <input
-              type="text"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
-              placeholder="us.anthropic.claude-sonnet-4-6-v1"
-            />
-          </div>
+
           <button
             onClick={handleSave}
-            disabled={!accessKeyId || !secretAccessKey}
+            disabled={!requiredFilled || !modelId}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
-            {saved ? "Saved!" : "Save Credentials"}
+            {saved ? "Saved!" : "Save Settings"}
           </button>
         </div>
       )}
