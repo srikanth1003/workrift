@@ -6,7 +6,8 @@ import {
   detectFrequentCopyPaste,
 } from "@shared/patterns";
 import { analyzeWorkflow } from "@shared/workflow-analyzer";
-import type { AwsCredentials } from "@shared/workflow-analyzer";
+import { getProvider } from "@shared/ai-providers";
+import type { AIConfig } from "@shared/ai-providers";
 import { detectWorkflowSequences } from "@shared/workflow-sequences";
 
 let lastActiveTabId: number | null = null;
@@ -85,13 +86,13 @@ interface GetActivitiesRangeMessage {
   endTime: number;
 }
 
-interface SaveCredentialsMessage {
-  type: "SAVE_AWS_CREDENTIALS";
-  payload: AwsCredentials;
+interface SaveAIConfigMessage {
+  type: "SAVE_AI_CONFIG";
+  payload: AIConfig;
 }
 
-interface GetCredentialsMessage {
-  type: "GET_AWS_CREDENTIALS";
+interface GetAIConfigMessage {
+  type: "GET_AI_CONFIG";
 }
 
 interface GetWorkflowSequencesMessage {
@@ -116,10 +117,42 @@ type Message =
   | GetActivitiesMessage
   | GetActivitiesRangeMessage
   | AnalyzeWorkflowMessage
-  | SaveCredentialsMessage
-  | GetCredentialsMessage
+  | SaveAIConfigMessage
+  | GetAIConfigMessage
   | GetWorkflowSequencesMessage
   | ClearDataMessage;
+
+async function getAIConfig(): Promise<AIConfig | null> {
+  const stored = await chrome.storage.local.get("aiConfig");
+  if (stored.aiConfig) return stored.aiConfig as AIConfig;
+
+  const legacy = await chrome.storage.local.get("awsCredentials");
+  const old = legacy.awsCredentials as {
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
+    region?: string;
+    modelId?: string;
+  } | undefined;
+
+  if (old?.accessKeyId && old?.secretAccessKey) {
+    const migrated: AIConfig = {
+      provider: "aws",
+      credentials: {
+        accessKeyId: old.accessKeyId,
+        secretAccessKey: old.secretAccessKey,
+        region: old.region ?? "us-east-1",
+        ...(old.sessionToken ? { sessionToken: old.sessionToken } : {}),
+      },
+      modelId: old.modelId ?? "us.anthropic.claude-sonnet-4-6-v1",
+    };
+    await chrome.storage.local.set({ aiConfig: migrated });
+    await chrome.storage.local.remove("awsCredentials");
+    return migrated;
+  }
+
+  return null;
+}
 
 export async function handleMessage(
   message: Message,
@@ -204,36 +237,53 @@ export async function handleMessage(
         }
       }
 
-      const stored = await chrome.storage.local.get("awsCredentials");
-      const credentials = stored.awsCredentials as AwsCredentials | undefined;
-      if (!credentials?.accessKeyId || !credentials?.secretAccessKey) {
-        sendResponse({ error: "AWS credentials not configured. Go to Settings to add them." });
+      const config = await getAIConfig();
+      if (!config) {
+        sendResponse({ error: "AI provider not configured. Go to Settings to add your API key." });
         return;
       }
+
+      const provider = getProvider(config.provider);
+      if (!provider) {
+        sendResponse({ error: `Unknown AI provider: ${config.provider}` });
+        return;
+      }
+
       const activities = await getActivitiesByDateRange(rangeStart, rangeEnd);
       if (activities.length === 0) {
         sendResponse({ error: "No activities recorded for this period." });
         return;
       }
-      const analysis = await analyzeWorkflow(activities, credentials);
+
+      const model = provider.createModel(config.credentials, config.modelId);
+      const analysis = await analyzeWorkflow(activities, model);
       const timestamp = Date.now();
       await chrome.storage.local.set({ [cacheKey]: { analysis, timestamp } });
       sendResponse({ analysis, cachedAt: timestamp });
     } catch (err) {
-      sendResponse({ error: `Analysis failed: ${err instanceof Error ? err.message : String(err)}` });
+      const msg2 = err instanceof Error ? err.message : String(err);
+      let userMessage = `Analysis failed: ${msg2}`;
+      if (msg2.includes("401") || msg2.includes("auth") || msg2.includes("API key")) {
+        const config = await getAIConfig();
+        userMessage = `Invalid ${config?.provider ?? "AI"} API key. Check your key in Settings.`;
+      } else if (msg2.includes("429") || msg2.includes("rate")) {
+        const config = await getAIConfig();
+        userMessage = `Rate limited by ${config?.provider ?? "AI provider"}. Try again in a minute.`;
+      }
+      sendResponse({ error: userMessage });
     }
   } else if (message.type === "GET_WORKFLOW_SEQUENCES") {
     const msg = message as GetWorkflowSequencesMessage;
     const activities = await getActivitiesByDateRange(msg.startTime, msg.endTime);
     const sequences = detectWorkflowSequences(activities);
     sendResponse({ sequences });
-  } else if (message.type === "SAVE_AWS_CREDENTIALS") {
-    const { payload } = message as SaveCredentialsMessage;
-    await chrome.storage.local.set({ awsCredentials: payload });
+  } else if (message.type === "SAVE_AI_CONFIG") {
+    const { payload } = message as SaveAIConfigMessage;
+    await chrome.storage.local.set({ aiConfig: payload });
     sendResponse({ ok: true });
-  } else if (message.type === "GET_AWS_CREDENTIALS") {
-    const stored = await chrome.storage.local.get("awsCredentials");
-    sendResponse({ credentials: stored.awsCredentials ?? null });
+  } else if (message.type === "GET_AI_CONFIG") {
+    const config = await getAIConfig();
+    sendResponse({ config });
   } else if (message.type === "CLEAR_DATA") {
     const msg = message as ClearDataMessage;
     try {
