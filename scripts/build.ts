@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 
 execSync("npx vite build", { stdio: "inherit" });
 
-const manifest = JSON.parse(readFileSync("manifest.json", "utf-8"));
+const manifest = JSON.parse(readFileSync("public/manifest.json", "utf-8"));
 
 manifest.action.default_popup = "src/popup/index.html";
 manifest.background.service_worker = "service-worker.js";

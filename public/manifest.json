@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Work Recognizer",
+  "name": "Workrift",
   "version": "0.1.0",
   "description": "Understand how you work. Get AI-powered suggestions to work smarter.",
   "permissions": ["tabs", "activeTab", "storage", "alarms", "clipboardRead"],
