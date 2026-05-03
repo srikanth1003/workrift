@@ -78,6 +78,7 @@ interface AnalyzeWorkflowMessage {
   forceRefresh?: boolean;
   startTime?: number;
   endTime?: number;
+  intensity?: import("@shared/workflow-analyzer").AnalysisIntensity;
 }
 
 interface GetActivitiesRangeMessage {
@@ -225,7 +226,8 @@ export async function handleMessage(
     const now = Date.now();
     const rangeStart = msg.startTime ?? new Date(new Date().setHours(0, 0, 0, 0)).getTime();
     const rangeEnd = msg.endTime ?? now;
-    const cacheKey = `analysisCache_${rangeStart}`;
+    const intensity = msg.intensity ?? "balanced";
+    const cacheKey = `analysisCache_${rangeStart}_${intensity}`;
 
     try {
       if (!msg.forceRefresh) {
@@ -256,7 +258,7 @@ export async function handleMessage(
       }
 
       const model = provider.createModel(config.credentials, config.modelId);
-      const analysis = await analyzeWorkflow(activities, model);
+      const analysis = await analyzeWorkflow(activities, model, intensity);
       const timestamp = Date.now();
       await chrome.storage.local.set({ [cacheKey]: { analysis, timestamp } });
       sendResponse({ analysis, cachedAt: timestamp });

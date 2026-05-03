@@ -195,23 +195,32 @@ Return fewer suggestions that are genuinely high-impact rather than many suggest
 - Browser automation: Bardeen (Free-$10/mo), Magical (Free)
 - Data entry: Magical (Free), Bardeen ($10/mo), Zapier ($20/mo)`;
 
-const HUMAN_PROMPT = `Here is the browser activity data for a user's work session:
+export type AnalysisIntensity = "strict" | "balanced" | "exploratory";
+
+const INTENSITY_MODIFIERS: Record<AnalysisIntensity, string> = {
+  strict: `Only surface suggestions for workflows that are clearly repetitive (3+ occurrences), time-consuming (5+ min each), and concretely automatable with a specific named tool. If the session is too short or too varied to show clear patterns, say so honestly — return empty suggestions rather than stretching. 1-2 strong suggestions beats 5 weak ones.`,
+  balanced: `Surface suggestions for workflows that appear repetitive (2+ occurrences) or time-consuming, and where a specific tool could help. Include moderate-confidence suggestions if the pattern seems likely to repeat. Aim for 2-4 suggestions, mixing high-confidence and worth-considering ones. Mark confidence levels honestly.`,
+  exploratory: `Cast a wide net — flag anything that looks like it could be optimized, even from a single session. Include speculative suggestions where the data hints at a pattern that might exist over a longer period. Surface 3-7 suggestions across all confidence levels. The user wants to see all possibilities and will filter themselves.`,
+};
+
+const HUMAN_PROMPT_TEMPLATE = `Here is the browser activity data for a user's work session:
 
 {activity_data}
 
 {sequences_data}
 
-Analyze this workflow data. Only surface suggestions for workflows that are clearly repetitive (3+ occurrences), time-consuming, and concretely automatable with a specific tool. If the session is too short or too varied to show clear patterns, say so — don't stretch to fill suggestions. Fewer high-confidence recommendations are better than many low-confidence ones.`;
+{intensity_modifier}`;
 
 export async function analyzeWorkflow(
   activities: ActivityEvent[],
   model: BaseChatModel,
+  intensity: AnalysisIntensity = "balanced",
 ): Promise<WorkflowAnalysis> {
   const structuredModel = model.withStructuredOutput(WorkflowAnalysisSchema);
 
   const prompt = ChatPromptTemplate.fromMessages([
     ["system", SYSTEM_PROMPT],
-    ["human", HUMAN_PROMPT],
+    ["human", HUMAN_PROMPT_TEMPLATE],
   ]);
 
   const chain = prompt.pipe(structuredModel);
@@ -223,5 +232,6 @@ export async function analyzeWorkflow(
   return await chain.invoke({
     activity_data: activityText,
     sequences_data: sequencesText || "No repeating cross-app sequences detected yet (need more activity data).",
+    intensity_modifier: INTENSITY_MODIFIERS[intensity],
   });
 }

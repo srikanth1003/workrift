@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { WorkflowAnalysis } from "@shared/workflow-analyzer";
+import type { WorkflowAnalysis, AnalysisIntensity } from "@shared/workflow-analyzer";
 import type { DateRange } from "./PeriodSelector";
 
 function timeAgo(timestamp: number): string {
@@ -19,26 +19,37 @@ interface AIInsightsProps {
   dateRange: DateRange;
 }
 
+const INTENSITY_OPTIONS: { value: AnalysisIntensity; label: string; desc: string }[] = [
+  { value: "strict", label: "Strict", desc: "Only high-confidence, repetitive patterns" },
+  { value: "balanced", label: "Balanced", desc: "Likely patterns worth investigating" },
+  { value: "exploratory", label: "Exploratory", desc: "Everything that could be optimized" },
+];
+
 export function AIInsights({ dateRange }: AIInsightsProps) {
   const [analysis, setAnalysis] = useState<WorkflowAnalysis | null>(null);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intensity, setIntensity] = useState<AnalysisIntensity>("balanced");
+  const [activeIntensity, setActiveIntensity] = useState<AnalysisIntensity | null>(null);
 
   useEffect(() => {
     setAnalysis(null);
     setCachedAt(null);
     setError(null);
+    setActiveIntensity(null);
 
     chrome.runtime.sendMessage({
       type: "ANALYZE_WORKFLOW",
       startTime: dateRange.startTime,
       endTime: dateRange.endTime,
+      intensity,
     }).then((response) => {
       const res = response as AnalyzeResponse;
       if ("analysis" in res) {
         setAnalysis(res.analysis);
         setCachedAt(res.cachedAt);
+        setActiveIntensity(intensity);
       }
     });
   }, [dateRange.startTime, dateRange.endTime]);
@@ -52,12 +63,14 @@ export function AIInsights({ dateRange }: AIInsightsProps) {
         forceRefresh: true,
         startTime: dateRange.startTime,
         endTime: dateRange.endTime,
+        intensity,
       }) as AnalyzeResponse;
       if ("error" in response) {
         setError(response.error);
       } else {
         setAnalysis(response.analysis);
         setCachedAt(response.cachedAt);
+        setActiveIntensity(intensity);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -74,6 +87,7 @@ export function AIInsights({ dateRange }: AIInsightsProps) {
           {cachedAt && !loading && (
             <p className="text-xs text-gray-500 mt-0.5">
               Last analyzed {timeAgo(cachedAt)} — {dateRange.label}
+              {activeIntensity && ` · ${activeIntensity}`}
             </p>
           )}
         </div>
@@ -84,6 +98,31 @@ export function AIInsights({ dateRange }: AIInsightsProps) {
         >
           {loading ? "Analyzing..." : analysis ? "Re-analyze" : "Analyze My Workflow"}
         </button>
+      </div>
+
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Sensitivity:</span>
+          <div className="flex bg-gray-700/50 rounded-lg p-0.5">
+            {INTENSITY_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setIntensity(opt.value)}
+                title={opt.desc}
+                className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                  intensity === opt.value
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {intensity !== activeIntensity && analysis && !loading && (
+            <span className="text-xs text-amber-400">Changed — click Re-analyze</span>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -149,6 +188,11 @@ export function AIInsights({ dateRange }: AIInsightsProps) {
 
           <div>
             <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Suggestions</h3>
+            {analysis.suggestions.length === 0 ? (
+              <p className="text-gray-500 text-sm py-4 text-center">
+                No high-impact suggestions for this session. Try "Exploratory" sensitivity or track a longer work session.
+              </p>
+            ) : (
             <div className="space-y-3">
               {analysis.suggestions.map((suggestion, i) => (
                 <div key={i} className="border border-emerald-500/20 bg-emerald-900/10 rounded-lg p-4">
@@ -185,6 +229,7 @@ export function AIInsights({ dateRange }: AIInsightsProps) {
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
